@@ -20,14 +20,21 @@ audio_entretien = "./test_mini.m4a" # Chemin du fichier audio à transcrire
 
 #TODO: prompt pour choisir le fichier
 
-# Choix de la taille du modèle de transcription (décommenter la ligne avec le modèle choisi) 
-#modele_whisper = "tiny"
-#modele_whisper = "base"
-#modele_whisper = "small"
-#modele_whisper = "medium"
-modele_whisper = "large-v2"
+# Prompt pour choisir la taille du modèle faster-whisper de transcription (large-v2 par défaut)
+modeles_whisper = ["large-v2", "medium", "small"]
+modele_whisper = ""
 
-#TODO: prompt pour choisir le modèle whysper (large-v2 en default)
+prompt_modele = "Choisir un modèle de retranscription (détermine la qualité et le temps de calcul, 'large-v2' par défaut) :\n"
+for index, modele in enumerate(modeles_whisper):
+    prompt_modele += f'{index+1}) {modele}\n'
+prompt_modele += "Modèle à utiliser : "
+modele_whisper = input(prompt_modele)
+
+if modele_whisper in map(str, range(1, len(modeles_whisper) + 1)):
+    modele_whisper = modeles_whisper[int(modele_whisper) - 1]
+else:
+    print(f" (x) Saisie incorrecte, sélection du modèle par défaut.")
+    modele_whisper = "large-v2"
 
 # On télécharge le modèle
 print(f"\nChargement du modèle {modele_whisper}.")
