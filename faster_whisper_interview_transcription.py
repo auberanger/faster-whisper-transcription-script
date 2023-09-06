@@ -6,6 +6,7 @@
 ##########################################################################################
 
 from faster_whisper import WhisperModel
+import argparse
 import io
 import time
 import os
@@ -15,16 +16,25 @@ import warnings
 
 warnings.filterwarnings("ignore") # Masquage des warnings dans la console
  
-# On définit le chemin de l'enregistrement de son entretien sur son PC
-audio_entretien = "./test_mini.m4a" # Chemin du fichier audio à transcrire
+# Récupération du fichier audio à transcrire passé en argument
+def creation_parser_arg():
+    # Créée and retourne l'objet ArgumentParser
 
-#TODO: prompt pour choisir le fichier
+    parser = argparse.ArgumentParser(description="Utilitaire de pré-transcription d'entretiens, utilisant faster-whisper.")
+    parser.add_argument("audio_entretien",
+        help="Chemin et nom du fichier audio à retranscrire.")
+    return parser
+p = creation_parser_arg().parse_args()
+
+if os.path.exists(p.audio_entretien):
+    audio_entretien = p.audio_entretien
+    print(f"\nFichier audio à retranscrire : {audio_entretien}")
 
 # Prompt pour choisir la taille du modèle faster-whisper de transcription (large-v2 par défaut)
 modeles_whisper = ["large-v2", "medium", "small"]
 modele_whisper = ""
 
-prompt_modele = "Choisir un modèle de retranscription (détermine la qualité et le temps de calcul, 'large-v2' par défaut) :\n"
+prompt_modele = "\nChoisir un modèle de retranscription (détermine la qualité et le temps de calcul, 'large-v2' par défaut) :\n"
 for index, modele in enumerate(modeles_whisper):
     prompt_modele += f'{index+1}) {modele}\n'
 prompt_modele += "Modèle à utiliser : "
@@ -36,7 +46,7 @@ else:
     print(f" (x) Saisie incorrecte, sélection du modèle par défaut.")
     modele_whisper = "large-v2"
 
-# On télécharge le modèle
+# Téléchargergement du modèle
 print(f"\nChargement du modèle {modele_whisper}.")
 model = WhisperModel(modele_whisper, device="cpu", compute_type="int8")
  
