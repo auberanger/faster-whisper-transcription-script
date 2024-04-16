@@ -4,7 +4,7 @@ Ce script a été écrit dans le but de simplifier l'utilisation de l'outil de r
 
 Le but de ce script est de permettre de gagner du temps sur ce travail de transcription, gratuitement et dans le respect de la confidentialité des enquêté·es (les calculs se font en local). Il permet d'obtenir une __pré-transcription horodatée__, qui nécissite ensuite une passe manuelle pour rajouter les locuteurices et corriger les erreurs de retranscription. __Cet outil n’est donc pas un substitut à l’écoute attentive des entretiens.__
 
-Je me suis inspiré de l'article de blog de [Yacine Chitour](https://www.css.cnrs.fr/whisper-pour-retranscrire-des-entretiens), pour réaliser un script optimisé, utilisant [faster-whisper](https://github.com/guillaumekln/faster-whisper), une réimplémentation de Whisper permettant d'accélérer significativement le temps de calcul.
+Je me suis inspiré de l'article de blog de [Yacine Chitour](https://www.css.cnrs.fr/whisper-pour-retranscrire-des-entretiens), pour réaliser un script optimisé, utilisant [faster-whisper](https://github.com/guillaumekln/faster-whisper), une réimplémentation de Whisper permettant d'accélérer significativement le temps de calcul. Je conseille également [cet article](https://agepouvoir.hypotheses.org/646) qui discute de questions méthodologiques et éthiques sur l'usage de Whisper.
 
 Pour l'instant, je n'ai pu tester ce script que sous Linux. Des retours sur son fonctionnement et le guide d'utilisation avec d'autres systèmes d'exploitations sont les bienvenus.
 
