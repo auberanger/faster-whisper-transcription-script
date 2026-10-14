@@ -20,6 +20,7 @@ Installer ensuite [faster-whisper](https://github.com/guillaumekln/faster-whispe
 ```
 pip install faster-whisper
 ```
+
 ## Utilisation
 Ce script est conçu pour être utilisé par une personne n'ayant jamais écrit la moindre ligne de code. Il suffit juste pour l'utiliser d'avoir un terminal de commande à sa disposition et d'exécuter quelques commandes basiques.
 
@@ -31,6 +32,26 @@ en remplaçant `fichier_audio_entretien.mp3` par le nom du fichier audio dont vo
 
 Si le chemin d'accès ou le nom du fichier est incorrect, le script renverra une erreur et s'arrêtera.
 
+### Choisir la langue de l'entretien
+Par défaut, la langue est détectée automatiquement à partir des premières dizaines de secondes du fichier audio. Cette détection peut se tromper (accent marqué, début d'enregistrement bruité, entretien mêlant plusieurs langues). Il est donc recommandé de **préciser la langue** avec l'option `-l` (ou `--langue`), suivie du code à deux lettres de la langue :
+```
+python3 transcrire_entretien.py fichier_audio_entretien.mp3 -l fr
+```
+ 
+| Langue | Code |
+|---|---|
+| Français | `fr` |
+| Anglais | `en` |
+| Espagnol | `es` |
+| Allemand | `de` |
+| Italien | `it` |
+| Portugais | `pt` |
+| Arabe | `ar` |
+
+
+Whisper reconnaît une centaine de langues ; la liste complète des codes se trouve dans le dépôt de whisper. Si le code saisi n'existe pas (par exemple francais au lieu de fr), le script affiche un message d'erreur et s'arrête avant de lancer le calcul.
+
+### Choix du modèle
 Si le fichier est bien trouvé, il vous sera alors demandé de choisir le modèle de calcul :
 ```
 Choisir un modèle de retranscription (détermine la qualité et le temps de calcul, 'large-v2' par défaut) :
