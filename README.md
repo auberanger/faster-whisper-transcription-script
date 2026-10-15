@@ -94,6 +94,8 @@ Si le nom du modèle n'est pas l'un des deux ci-dessus, le script affiche la lis
 > [!WARNING] Attention
 > Quelque soit le modèle choisi, faites tourner cet utilitaire à un moment où vous n'avez pas besoin de votre machine. Toutes les capacités de calcul seront mobilisées par la retranscription.
 
+Les silences sont ignorés par un filtre de détection de la voix (Silero VAD), ce qui limite les phrases inventées par Whisper et les hallucinations dans les passages sans parole.
+
 La retranscription démarre ensuite. Elle est stockée dans un fichier texte éponyme, dans le dossier courant.
 
 > [!NOTE] Téléchargement et suppression des modèles

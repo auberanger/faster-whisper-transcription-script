@@ -94,7 +94,7 @@ heure_de_demarrage = time.localtime()
 print(f"\n{time.strftime('%Hh%M', heure_de_demarrage)} : démarrage de la retranscription...")
  
 try:
-    transcription, info = model.transcribe(audio_entretien, beam_size=5, language=p.langue)
+    transcription, info = model.transcribe(audio_entretien, beam_size=5, language=p.langue, vad_filter=True)
 except ValueError as e:
     print(f"\n (x) Langue invalide : '{p.langue}'. Utiliser un code à deux lettres (fr, en, es, de...).")
     print(f"     Détail : {e}")
