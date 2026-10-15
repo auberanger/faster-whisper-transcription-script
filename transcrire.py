@@ -16,7 +16,9 @@ import time
 import os
 import math
 import pathlib
+import shutil
 import sys
+from tqdm import tqdm
 import warnings
 
 warnings.filterwarnings("ignore") # Masquage des warnings dans la console
@@ -31,6 +33,12 @@ DEPOTS_HF = {
 }
 # Fichiers nécessaires au modèle (les mêmes que ceux téléchargés par faster-whisper)
 FICHIERS_MODELE = ["config.json", "preprocessor_config.json", "model.bin", "tokenizer.json", "vocabulary.*"]
+
+NB_LIGNES_APERCU = 4  # nombre de dernières lignes affichées sous la barre (3 à 5 conseillé)
+
+def tronquer(texte, largeur):
+    """Raccourcit une ligne pour qu'elle tienne sur une seule ligne du terminal."""
+    return texte if len(texte) <= largeur else texte[:largeur - 1] + "…"
 
 # Récupération du fichier audio à transcrire passé en argument
 def creation_parser_arg():
@@ -117,11 +125,48 @@ fileNameStem = pathlib.Path(audio_entretien).stem
 entretien_transcrit = f"{fileNameStem}.txt"
 
 # Enregistrement de la transcription
-with open(entretien_transcrit , 'w', encoding='utf-8') as f:
-    for segment in transcription:
-        start_time = convertir(segment.start)
-        end_time = convertir(segment.end)
-        f.write(f"{start_time} - {end_time}: {segment.text}\n")
+duree_audio = info.duration  # durée totale de l'audio, en secondes
+
+duree_audio = info.duration  # durée totale de l'audio, en secondes
+apercu = sys.stderr.isatty()  # l'aperçu n'a de sens que dans un vrai terminal
+derniers = []  # dernières lignes transcrites
+
+with open(entretien_transcrit, 'w', encoding='utf-8') as f, \
+     tqdm(total=duree_audio, desc="Retranscription", position=0,
+          bar_format="{l_bar}{bar}| {elapsed}<{remaining}") as barre:
+
+    # Lignes de texte placées sous la barre : de simples « barres » qui n'affichent que du texte
+    lignes = [tqdm(total=0, position=i + 1, bar_format="{desc}", leave=False)
+              for i in range(NB_LIGNES_APERCU)] if apercu else []
+
+    try:
+        position = 0
+        for segment in transcription:
+            start_time = convertir(segment.start)
+            end_time = convertir(segment.end)
+            f.write(f"{start_time} - {end_time}: {segment.text}\n")
+
+            # Avancement de la barre jusqu'à la fin du segment qui vient d'être traité
+            avancement = min(segment.end, duree_audio)
+            barre.update(avancement - position)
+            position = avancement
+
+            # Aperçu des dernières lignes, la plus récente en bas
+            if apercu:
+                derniers.append(f"[{start_time}] {segment.text.strip()}")
+                derniers = derniers[-NB_LIGNES_APERCU:]
+                largeur = shutil.get_terminal_size().columns - 1
+                for i, ligne in enumerate(lignes):
+                    texte = tronquer(derniers[i], largeur) if i < len(derniers) else ""
+                    ligne.set_description_str(texte)
+
+        # Complète la barre à 100 % (le dernier segment se termine parfois avant la fin de l'audio)
+        barre.update(duree_audio - position)
+
+    finally:
+        # Efface les lignes d'aperçu (dans l'ordre inverse de leur création), la barre reste affichée
+        for ligne in reversed(lignes):
+            ligne.close()
         
 heure_de_fin = time.localtime()
 print(f"{time.strftime('%Hh%M', heure_de_fin)} : transcription terminée.")
