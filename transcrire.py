@@ -1,8 +1,8 @@
 #################################################################################################
 ## Script Whisper de retranscription d'entretiens sociologiques.                               ##
-## v2.3 - 2023-09-06                                                                           ##
+## v2.4 - 2026-10-14                                                                           ##
 ## Dépôt et instructions : https://github.com/auberanger/faster-whisper-transcription-script   ##
-## à exécuter en tapant la commande : python3 transcrire_entretien.py fichier_audio.mp3        ##
+## à exécuter en tapant la commande : python3 transcrire.py fichier_audio.mp3        ##
 #################################################################################################
 
 from faster_whisper import WhisperModel
@@ -12,6 +12,7 @@ import time
 import os
 import math
 import pathlib
+import sys
 import warnings
 
 warnings.filterwarnings("ignore") # Masquage des warnings dans la console
@@ -23,12 +24,29 @@ def creation_parser_arg():
     parser = argparse.ArgumentParser(description="Utilitaire de pré-transcription d'entretiens, utilisant faster-whisper.")
     parser.add_argument("audio_entretien",
         help="Chemin et nom du fichier audio à retranscrire.")
+    parser.add_argument("-l", "--langue", default=None,
+        help="Code de la langue parlée (fr, en, es, de...). Par défaut : détection automatique.")
     return parser
+
+# Parsing des argument rentrés en ligne de commande et vérification qu'ils soient corrects
 p = creation_parser_arg().parse_args()
 
+# Vérification de l'existence du fichier
 if os.path.exists(p.audio_entretien):
     audio_entretien = p.audio_entretien
     print(f"\nFichier audio à retranscrire : {audio_entretien}")
+else:
+    sys.exit(f" (x) Fichier introuvable : {p.audio_entretien}")
+
+# Vérification de l'argument de la langue
+if p.langue:
+    p.langue = p.langue.strip().lower()
+    try:
+        from faster_whisper.tokenizer import _LANGUAGE_CODES
+        if p.langue not in _LANGUAGE_CODES:
+            sys.exit(f" (x) Langue invalide : '{p.langue}'. Utiliser un code à deux lettres (fr, en, es, de...).")
+    except ImportError:
+        pass  # si la liste interne est indisponible, le try/except autour de transcribe() prend le relais
 
 # Prompt pour choisir la taille du modèle faster-whisper de transcription (large-v2 par défaut)
 modeles_whisper = ["large-v2", "medium", "small"]
@@ -50,13 +68,21 @@ else:
 print(f"\nChargement du modèle {modele_whisper}.")
 model = WhisperModel(modele_whisper, device="cpu", compute_type="int8")
  
-# Transcription
+# Transcription, avec vérification de l'erreur du paramètre de choix de langue
 heure_de_demarrage = time.localtime()
 print(f"\n{time.strftime('%Hh%M', heure_de_demarrage)} : démarrage de la retranscription...")
  
-transcription, info = model.transcribe(audio_entretien, beam_size=5)
+try:
+    transcription, info = model.transcribe(audio_entretien, beam_size=5, language=p.langue)
+except ValueError as e:
+    print(f"\n (x) Langue invalide : '{p.langue}'. Utiliser un code à deux lettres (fr, en, es, de...).")
+    print(f"     Détail : {e}")
+    sys.exit(1)
 
-print("Langue détectée : '%s', avec une probabilité de %f." % (info.language, info.language_probability))
+if p.langue:
+    print(f"Langue imposée : '{p.langue}'.")
+else:
+    print("Langue détectée : '%s', avec une probabilité de %f." % (info.language, info.language_probability))
 
 # Fonction pour faciliter l'horodatage des segments de parole en heures, minutes et secondes
 def convertir(seconds):
