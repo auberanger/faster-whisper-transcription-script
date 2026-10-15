@@ -16,17 +16,42 @@ python3 --version
 
 Prévoir quelques Go d'espace disque de libre pour l'installation des modèles de calcul, ça peut être assez gourmand. 
 
+Commencez par créer un environnement virtuel dédié :
+```
+python3 -m venv ~/venv-whisper
+```
+
+> [!NOTE]
+> Si la commande échoue en signalant que `venv` ou `ensurepip` est absent, installer d'abord le module manquant sous Debian/Ubuntu avec `sudo apt install python3-venv`, puis relancer la commande.
+> 
+> Il faut ensuite l'activer : le nom de l'environnement, `(venv-whisper)`, s'affiche alors au début de l'invite de commande du terminal.
+> ```
+> source ~/venv-whisper/bin/activate
+> ```
+Sous Windows (non testé), la création et l'activation se font avec `py -m venv venv-whisper` puis `venv-whisper\Scripts\activate`.
+
+L'activation vaut uniquement pour le terminal en cours : elle est à refaire à chaque nouveau terminal, avant de lancer le script. Pour quitter l'environnement, taper `deactivate`.
+
 Installer ensuite [faster-whisper](https://github.com/guillaumekln/faster-whisper), avec la commande : 
 ```
-pip install faster-whisper
+pip install -U faster-whisper "av<19"
 ```
+> [!NOTE]
+> **Pourquoi `"av<19"` ?** faster-whisper utilise la bibliothèque PyAV (paquet `av`) pour lire les fichiers audio. La version 19 de PyAV (septembre 2026) n'est pas compatible avec la dernière version publiée de faster-whisper (1.2.1) : sans cette contrainte, la transcription s'arrête avec l'erreur `TypeError: open() got an unexpected keyword argument 'metadata_errors'"`. Cette contrainte pourra être retirée quand faster-whisper publiera une version corrigée (voir le [suivi]() du problème). Si vous rencontrez déjà cette erreur, lancez simplement `pip install "av<19"` dans l'environnement activé ou réinstallez complètement faster-whisper :
+> ```
+> pip install -U --force-reinstall av faster-whisper "av<19"
+> ```
 
 ## Utilisation
 Ce script est conçu pour être utilisé par une personne n'ayant jamais écrit la moindre ligne de code. Il suffit juste pour l'utiliser d'avoir un terminal de commande à sa disposition et d'exécuter quelques commandes basiques.
 
-Télécharger le script `transcrire_entretien.py` (sur ce dépôt) et l'enregistrer dans le dossier contenant les fichiers audios d'entretiens à retranscrire. Ouvrir dans ce dossier un terminal et lancer le script avec la commande 
+Vérifier d'abord que vous êtes bien dans l'environnement virtuel dans lequel faster-whisper est installé. Si le nom de l'environnement `(venv-whisper)` ne s'affiche pas au début de l'invite de commande du terminal, relancer :
 ```
-python3 transcrire_entretien.py fichier_audio_entretien.mp3
+source ~/venv-whisper/bin/activate
+```
+Télécharger le script `transcrire.py` (sur ce dépôt) et l'enregistrer dans le dossier contenant les fichiers audios d'entretiens à retranscrire. Ouvrir dans ce dossier un terminal et lancer le script avec la commande 
+```
+python3 transcrire.py fichier_audio_entretien.mp3
 ```
 en remplaçant `fichier_audio_entretien.mp3` par le nom du fichier audio dont vous souhaitez une retranscription (vous pouvez vous aider de la touche `[Tab]` du clavier pour l'auto-complétion du nom de fichier). De nombreux formats audio sont acceptés par whisper (.mp3, .wav, .ogg, .amr, .m4a, etc.).
 
@@ -35,7 +60,7 @@ Si le chemin d'accès ou le nom du fichier est incorrect, le script renverra une
 ### Choisir la langue de l'entretien
 Par défaut, la langue est détectée automatiquement à partir des premières dizaines de secondes du fichier audio. Cette détection peut se tromper (accent marqué, début d'enregistrement bruité, entretien mêlant plusieurs langues). Il est donc recommandé de **préciser la langue** avec l'option `-l` (ou `--langue`), suivie du code à deux lettres de la langue :
 ```
-python3 transcrire_entretien.py fichier_audio_entretien.mp3 -l fr
+python3 transcrire.py fichier_audio_entretien.mp3 -l fr
 ```
  
 | Langue | Code |

@@ -2,7 +2,7 @@
 ## Script Whisper de retranscription d'entretiens sociologiques.                               ##
 ## v2.4 - 2026-10-14                                                                           ##
 ## Dépôt et instructions : https://github.com/auberanger/faster-whisper-transcription-script   ##
-## à exécuter en tapant la commande : python3 transcrire_entretien.py fichier_audio.mp3        ##
+## à exécuter en tapant la commande : python3 transcrire.py fichier_audio.mp3        ##
 #################################################################################################
 
 from faster_whisper import WhisperModel
