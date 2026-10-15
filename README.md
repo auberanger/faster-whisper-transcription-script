@@ -76,24 +76,28 @@ python3 transcrire.py fichier_audio_entretien.mp3 -l fr
 
 Whisper reconnaît une centaine de langues ; la liste complète des codes se trouve dans le dépôt de whisper. Si le code saisi n'existe pas (par exemple francais au lieu de fr), le script affiche un message d'erreur et s'arrête avant de lancer le calcul.
 
-### Choix du modèle
-Si le fichier est bien trouvé, il vous sera alors demandé de choisir le modèle de calcul :
+### Choisir le modèle de transcription
+Le modèle de calcul se choisit avec l'option `-m` (ou `--modele`). Deux modèles sont proposés, tous deux multilingues :
+ 
+| Modèle | Quand l'utiliser | Poids à télécharger (ordre de grandeur) |
+|---|---|---|
+| `large-v3-turbo` (**par défaut**) | Bon compromis entre qualité et temps de calcul : adapté à la plupart des entretiens, y compris sur un ordinateur de bureau sans carte graphique. | 1,5 à 2 Go |
+| `large-v3` | Précision maximale, à privilégier pour des enregistrements difficiles (accents marqués, bruit de fond, voix qui se chevauchent). Le calcul est nettement plus long. | environ 3 Go |
+ 
+Sans l'option `-m`, le script utilise `large-v3-turbo`. Exemples :
 ```
-Choisir un modèle de retranscription (détermine la qualité et le temps de calcul, 'large-v2' par défaut) :
-1) large-v2
-2) medium
-3) small
-Modèle à utiliser : _
+python3 transcrire_entretien.py fichier_audio_entretien.mp3 -l fr
+python3 transcrire_entretien.py fichier_audio_entretien.mp3 -l fr -m large-v3
 ```
-J'utilise personnellement le modèle le plus puissant, `large-v2`, car la retranscription est plus précise et que mon ordinateur est relativement performant. 
+Si le nom du modèle n'est pas l'un des deux ci-dessus, le script affiche la liste des valeurs acceptées et s'arrête.
 
-> __Conseil :__ quelque soit le modèle choisi, faites tourner cet utilitaire à un moment où vous n'avez pas besoin de votre machine. Toutes les capacités de calcul seront mobilisées par la retransciption.
+> [!WARNING] Attention
+> Quelque soit le modèle choisi, faites tourner cet utilitaire à un moment où vous n'avez pas besoin de votre machine. Toutes les capacités de calcul seront mobilisées par la retranscription.
 
-La première fois que vous mobiliserez un modèle, il faudra d'abord le télécharger, ce qui peut prendre un peu de temps (le modèle `large-v2` pèse pas loin de 3Go).
+La retranscription démarre ensuite. Elle est stockée dans un fichier texte éponyme, dans le dossier courant.
 
-La retranscription démarre. La langue est détectée automatiquement à partir des premières dizaines de secondes du fichier audio. 
-
-La retranscription du fichier audio est stockée dans un fichier texte éponyme, dans le dossier courant.
+> [!NOTE] Téléchargement et suppression des modèles
+> La première fois que vous mobiliserez un modèle, il faudra d'abord le télécharger, ce qui peut prendre un peu de temps. Chaque modèle n'est téléchargé qu'une fois : il est ensuite conservé dans le cache de l'utilisateur (`~/.cache/huggingface` sous Linux). Les modèles abandonnés (par exemple `large-v2` si vous utilisiez une ancienne version du script) peuvent être supprimés de ce dossier pour libérer de la place, en repérant les modèles présents avec la commande `ls ~/.cache/huggingface/hub`, puis en supprimant le modèle obsolète `rm -rf ~/.cache/huggingface/hub/modele-obsolete` (en remplaçant `modele-obsolete` par le vrai nom du modèle).
 
 ## Améliorations
 Des améliorations du script sont prévues mais le temps dont je dispose pour les mettre en œuvre est limité. Aussi, toute contribution est la bienvenue, en particulier s'agissant de rendre l'expérience d'utilisation la plus simple possible pour des personnes peu à l'aise avec la manipulation de ce genre de scripts. N'hésitez pas à ouvrir des issues avec des suggestions d'améliorations ou à forker le projet.

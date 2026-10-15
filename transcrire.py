@@ -6,6 +6,10 @@
 #################################################################################################
 
 from faster_whisper import WhisperModel
+from faster_whisper.utils import download_model
+from huggingface_hub import snapshot_download
+from huggingface_hub.utils import enable_progress_bars
+
 import argparse
 import io
 import time
@@ -16,7 +20,18 @@ import sys
 import warnings
 
 warnings.filterwarnings("ignore") # Masquage des warnings dans la console
- 
+
+# Modèles de transcription proposés (le premier est le modèle par défaut)
+MODELES_WHISPER = ["large-v3-turbo", "large-v3"]
+
+# Dépôts Hugging Face correspondant aux modèles proposés
+DEPOTS_HF = {
+    "large-v3-turbo": "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
+    "large-v3": "Systran/faster-whisper-large-v3",
+}
+# Fichiers nécessaires au modèle (les mêmes que ceux téléchargés par faster-whisper)
+FICHIERS_MODELE = ["config.json", "preprocessor_config.json", "model.bin", "tokenizer.json", "vocabulary.*"]
+
 # Récupération du fichier audio à transcrire passé en argument
 def creation_parser_arg():
     # Créée and retourne l'objet ArgumentParser
@@ -24,6 +39,7 @@ def creation_parser_arg():
     parser = argparse.ArgumentParser(description="Utilitaire de pré-transcription d'entretiens, utilisant faster-whisper.")
     parser.add_argument("audio_entretien",
         help="Chemin et nom du fichier audio à retranscrire.")
+    parser.add_argument("-m", "--modele", choices=MODELES_WHISPER, default=MODELES_WHISPER[0], help="Modèle de transcription (défaut : large-v3-turbo ; large-v3 = précision maximale, calcul plus long).")
     parser.add_argument("-l", "--langue", default=None,
         help="Code de la langue parlée (fr, en, es, de...). Par défaut : détection automatique.")
     return parser
@@ -48,25 +64,30 @@ if p.langue:
     except ImportError:
         pass  # si la liste interne est indisponible, le try/except autour de transcribe() prend le relais
 
-# Prompt pour choisir la taille du modèle faster-whisper de transcription (large-v2 par défaut)
-modeles_whisper = ["large-v2", "medium", "small"]
-modele_whisper = ""
+# Modèle de transcription choisi en paramètre (large-v3-turbo par défaut)
+modele_whisper = p.modele
 
-prompt_modele = "\nChoisir un modèle de retranscription (détermine la qualité et le temps de calcul, 'large-v2' par défaut) :\n"
-for index, modele in enumerate(modeles_whisper):
-    prompt_modele += f'{index+1}) {modele}\n'
-prompt_modele += "Modèle à utiliser : "
-modele_whisper = input(prompt_modele)
+enable_progress_bars()  # garantit l'affichage de la barre de téléchargement
+depot = DEPOTS_HF[modele_whisper]
 
-if modele_whisper in map(str, range(1, len(modeles_whisper) + 1)):
-    modele_whisper = modeles_whisper[int(modele_whisper) - 1]
-else:
-    print(f" (x) Saisie incorrecte, sélection du modèle par défaut.")
-    modele_whisper = "large-v2"
+try:
+    try:
+        # Modèle déjà présent sur la machine ? (aucun accès au réseau)
+        chemin_modele = snapshot_download(depot, allow_patterns=FICHIERS_MODELE, local_files_only=True)
+        if not os.path.exists(os.path.join(chemin_modele, "model.bin")):
+            raise FileNotFoundError("téléchargement incomplet")
+    except Exception:
+        print(f"\nPremier lancement avec le modèle {modele_whisper} : téléchargement en cours")
+        print("(1,5 à 3 Go selon le modèle, cela peut durer plusieurs minutes avec une connexion lente).")
+        chemin_modele = snapshot_download(depot, allow_patterns=FICHIERS_MODELE)
 
-# Téléchargergement du modèle
-print(f"\nChargement du modèle {modele_whisper}.")
-model = WhisperModel(modele_whisper, device="cpu", compute_type="int8")
+    print(f"\nChargement du modèle {modele_whisper}.")
+    model = WhisperModel(chemin_modele, device="cpu", compute_type="int8")
+
+except Exception as e:
+    print(f"\n (x) Impossible de télécharger ou de charger le modèle '{modele_whisper}' : {e}")
+    print("     Vérifier la connexion internet et l'espace disque disponible, puis relancer le script.")
+    sys.exit(1)
  
 # Transcription, avec vérification de l'erreur du paramètre de choix de langue
 heure_de_demarrage = time.localtime()
