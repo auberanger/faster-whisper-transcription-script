@@ -20,6 +20,7 @@ import importlib.util
 import math
 import os
 import pathlib
+import re
 import shutil
 import sys
 import time
@@ -187,6 +188,19 @@ def lire_vocabulaire(valeur):
         termes = [t.strip() for t in valeur.split(",") if t.strip()]
     return termes or None
 
+# Compte les occurrences de chaque terme du vocabulaire dans la transcription (sans tenir compte de la casse).
+def compter_vocabulaire(termes, segments):
+    texte = " ".join(seg["texte"] for seg in segments)
+    return {terme: len(re.findall(rf"(?<!\w){re.escape(terme)}(?!\w)", texte, flags=re.IGNORECASE))
+            for terme in termes}
+
+# Affiche un bilan du vocabulaire retrouvé à l'issu de la retranscription
+def afficher_bilan_vocabulaire(occurrences):
+    trouves = sorted(((t, n) for t, n in occurrences.items() if n > 0), key=lambda x: -x[1])
+    detail = ", ".join(f"{t} [{n}]" for t, n in trouves)
+    print(f"Vocabulaire retrouvé : {len(trouves)} terme(s) sur {len(occurrences)}" + (f" ({detail})" if trouves else ""))
+
+
 
 
 
@@ -344,6 +358,9 @@ heure_de_fin = time.localtime()
 print(f"{time.strftime('%Hh%M', heure_de_fin)} : transcription terminée.")
 
 print(f"\nEntretien transcrit et enregistré dans les fichiers : {entretien_transcrit} et {entretien_srt}")
+
+if termes:
+    afficher_bilan_vocabulaire(compter_vocabulaire(termes, segments))
 
 # Calcul et affichage conditionnel de la durée de retranscription
 temps_retranscription = float(time.mktime(heure_de_fin) - time.mktime(heure_de_demarrage))
