@@ -1,6 +1,6 @@
 #################################################################################################
 ## Utilitaire de retranscription d'entretiens sociologiques (faster-whisper et pyannote).      ##
-## v3.1 - 2026-10-17                                                                           ##
+## v3.2 - 2026-10-17                                                                           ##
 ## Dépôt et instructions : https://github.com/auberanger/faster-whisper-transcription-script   ##
 ## à exécuter en tapant la commande : python3 transcrire.py fichier_audio.mp3                  ##
 #################################################################################################
@@ -12,8 +12,13 @@ from faster_whisper.utils import download_model
 from huggingface_hub import snapshot_download
 from huggingface_hub.utils import enable_progress_bars
 
-from tqdm import tqdm
 from contextlib import nullcontext
+
+from rich.console import Console, Group
+from rich.live import Live
+from rich.markup import escape
+from rich.progress import Progress, TextColumn, BarColumn, TaskProgressColumn, TimeElapsedColumn, TimeRemainingColumn
+from rich.text import Text
 
 import argparse
 import importlib.util
@@ -21,7 +26,6 @@ import math
 import os
 import pathlib
 import re
-import shutil
 import sys
 import time
 import warnings
@@ -49,7 +53,11 @@ FICHIERS_MODELE = ["config.json", "preprocessor_config.json", "model.bin", "toke
 MODELE_DIARISATION = "pyannote/speaker-diarization-community-1"
 NB_PERSONNES_DEFAUT = 2  # Par défaut on prend le cas standard d'un entretien en face à face
 
-NB_LIGNES_APERCU = 4  # nombre de dernières lignes affichées sous la barre (3 à 5 conseillé)
+NB_LIGNES_APERCU = 5  # nombre de dernières lignes affichées sous la barre (3 à 5 conseillé)
+# Styles de l'aperçu (nuances de gris, pensées pour un terminal à fond sombre)
+STYLE_APERCU = "grey82"               # lignes du milieu : bien lisibles
+STYLE_APERCU_APPARITION = "grey50"    # ligne la plus récente : elle « apparaît »
+STYLE_APERCU_DISPARITION = "grey30"   # ligne la plus ancienne : elle « disparaît »
 
 # Découpage des tours de parole trop longs en paragraphes (en nombre de caractères) :
 # on coupe à la première fin de phrase après PARAGRAPHE_CIBLE, et dans tous les cas à PARAGRAPHE_MAX
@@ -92,10 +100,6 @@ def convertir_srt(secondes):
     m, ms = divmod(ms, 60000)
     s, ms = divmod(ms, 1000)
     return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
-
-# Raccourcit une ligne pour qu'elle tienne sur une seule ligne du terminal pour l'affichage des lignes retranscrites en temps réel
-def tronquer(texte, largeur):
-    return texte if len(texte) <= largeur else texte[:largeur - 1] + "…"
 
 # Diarisation : retourne la liste des tours de parole (début, fin, étiquette de la personne)
 def diariser(chemin_audio, nb_personnes):
@@ -183,7 +187,7 @@ def lire_vocabulaire(valeur):
         with open(valeur, encoding='utf-8') as f:
             termes = [ligne.strip() for ligne in f if ligne.strip() and not ligne.startswith("#")]
     elif valeur.lower().endswith(".txt"):
-        sys.exit(f" (x) Fichier de vocabulaire introuvable : {valeur}")
+        quitter(f"Fichier de vocabulaire introuvable : {val(valeur)}") 
     else:
         termes = [t.strip() for t in valeur.split(",") if t.strip()]
     return termes or None
@@ -197,9 +201,38 @@ def compter_vocabulaire(termes, segments):
 # Affiche un bilan du vocabulaire retrouvé à l'issu de la retranscription
 def afficher_bilan_vocabulaire(occurrences):
     trouves = sorted(((t, n) for t, n in occurrences.items() if n > 0), key=lambda x: -x[1])
-    detail = ", ".join(f"{t} [{n}]" for t, n in trouves)
-    print(f"Vocabulaire retrouvé : {len(trouves)} terme(s) sur {len(occurrences)}" + (f" ({detail})" if trouves else ""))
+    liste = ", ".join(f"{escape(t)} [dim]({n})[/]" for t, n in trouves)
+    succes(f"Vocabulaire retrouvé : {val(len(trouves))} terme·s sur {len(occurrences)}" + (f" : {liste}" if trouves else ""))
 
+# Fonctions d'affichage
+console = Console()
+console_erreur = Console(stderr=True)
+
+def val(valeur):
+    """Met une valeur en gras. Les crochets sont échappés : pour rich, ils servent au balisage."""
+    return f"[bold]{escape(str(valeur))}[/]"
+
+def heure():
+    return f"[dim bold cyan]{time.strftime('%Hh%M')}[/]"
+
+def etape(message):
+    console.print(f"[bold cyan]▶[/] {message}")
+
+def succes(message):
+    console.print(f"[bold green]✔[/] {message}")
+
+def avertissement(message):
+    console.print(f"[bold yellow]⚠[/] {message}")
+
+def detail(message):
+    console.print(f"  [dim]{message}[/]")
+
+def erreur(message):
+    console_erreur.print(f"[bold red]✖[/] {message}")
+
+def quitter(message):
+    erreur(message)
+    sys.exit(1)
 
 
 
@@ -211,14 +244,14 @@ p = creation_parser_arg().parse_args()
 
 # Vérification de la saisie d'un nombre de personnes cohérent
 if p.nombre_personnes < 1:
-    sys.exit(" (x) Le nombre de personnes (-n) doit être au moins égal à 1.")
+    quitter(f"Le nombre de personnes (-n) doit être au moins égal à 1.")
 
 # Vérification de l'existence du fichier audio à transcrire
 if os.path.exists(p.audio_entretien):
     audio_entretien = p.audio_entretien
-    print(f"\nFichier audio à retranscrire : {audio_entretien}")
+    etape(f"Fichier audio à retranscrire : {val(audio_entretien)}")
 else:
-    sys.exit(f" (x) Fichier introuvable : {p.audio_entretien}")
+    quitter(f"Fichier introuvable : {val(p.audio_entretien)}")
 
 # Vérification de l'argument de la langue
 if p.langue:
@@ -236,8 +269,8 @@ try:
 except ModuleNotFoundError:
     diarisation_possible = False
 if not diarisation_possible:
-    print("\n (!) pyannote.audio n'est pas installé : la transcription sera produite sans identification des personnes.")
-    print("     Pour l'installer : pip install pyannote.audio")
+    avertissement("pyannote.audio n'est pas installé : la transcription sera produite sans identification des personnes.")
+    detail("Pour l'installer : pip install pyannote.audio")
 
 # Modèle de transcription choisi en paramètre (large-v3-turbo par défaut)
 modele_whisper = p.modele
@@ -252,95 +285,102 @@ try:
         if not os.path.exists(os.path.join(chemin_modele, "model.bin")):
             raise FileNotFoundError("téléchargement incomplet")
     except Exception:
-        print(f"\nPremier lancement avec le modèle {modele_whisper} : téléchargement en cours")
-        print("(1,5 à 3 Go selon le modèle, cela peut durer plusieurs minutes avec une connexion lente).")
+        etape(f"Premier lancement avec le modèle {val(modele_whisper)} : téléchargement en cours")
+        detail("(1,5 à 3 Go selon le modèle, cela peut durer plusieurs minutes avec une connexion lente)")
         chemin_modele = snapshot_download(depot, allow_patterns=FICHIERS_MODELE)
 
-    print(f"\nChargement du modèle {modele_whisper}.")
+    etape(f"Chargement du modèle {val(modele_whisper)}")
     model = WhisperModel(chemin_modele, device="cpu", compute_type="int8")
 
 except Exception as e:
-    print(f"\n (x) Impossible de télécharger ou de charger le modèle '{modele_whisper}' : {e}")
-    print("     Vérifier la connexion internet et l'espace disque disponible, puis relancer le script.")
+    erreur(f"Impossible de télécharger ou de charger le modèle {val(modele_whisper)} : {escape(str(e))}")
+    detail("Vérifier la connexion internet et l'espace disque disponible, puis relancer le script.")
     sys.exit(1)
 
 # Ajout du vocabulaire fourni à la variable hotwords pour la retranscription
 termes = lire_vocabulaire(p.vocabulaire)
 hotwords = ", ".join(termes) if termes else None
 if termes:
-    print(f"Vocabulaire fourni : {len(termes)} terme(s).")
+    succes(f"Vocabulaire fourni : {val(len(termes))} terme·s")
 
 # Transcription, avec vérification de l'erreur du paramètre de choix de langue
 heure_de_demarrage = time.localtime()
-print(f"\n{time.strftime('%Hh%M', heure_de_demarrage)} : démarrage de la retranscription...")
+etape(f"{heure()} Démarrage de la retranscription...")
  
 try:
     transcription, info = model.transcribe(audio_entretien, beam_size=5, language=p.langue, vad_filter=True, hotwords=hotwords)
 except ValueError:
     if p.langue is None:
         raise  # erreur sans rapport avec la langue : on ne la masque pas
-    print(f"\n (x) Langue invalide : '{p.langue}'. Passage en détection automatique de la langue.")
+    avertissement(f"Langue invalide : {val(p.langue)}. Passage en détection automatique.")
     p.langue = None
     transcription, info = model.transcribe(audio_entretien, beam_size=5, language=None, vad_filter=True, hotwords=hotwords)
 
 if p.langue is not None:
-    print(f"Langue imposée : '{p.langue}'.")
+    succes(f"Langue imposée : {val(p.langue)}")
 else:
-    print("Langue détectée : '%s', avec une probabilité de %f." % (info.language, info.language_probability))
+    succes(f"Langue détectée : {val(info.language)} (probabilité {info.language_probability:.0%})")
 
 duree_audio = info.duration  # durée totale de l'audio, en secondes
-apercu = sys.stderr.isatty()  # l'aperçu n'a de sens que dans un vrai terminal
 derniers = []   # dernières lignes transcrites, pour l'aperçu
 segments = []   # tous les segments : {"debut", "fin", "texte", "locuteur"}
-# Barre de progression, avec aperçu en direct des dernières lignes transcrites
 
-with tqdm(total=duree_audio, desc="Retranscription", position=0,
-          bar_format="{l_bar}{bar}| {elapsed}<{remaining}") as barre:
+# Barre de progression (rich), avec aperçu en direct des dernières lignes transcrites
+progression = Progress(
+    TextColumn("[bold]{task.description}"),
+    BarColumn(bar_width=None),
+    TaskProgressColumn(),
+    TextColumn("•"),
+    TimeElapsedColumn(),
+    TextColumn("•"),
+    TimeRemainingColumn(),
+)
+tache = progression.add_task("Retranscription", total=duree_audio)
 
-    # Lignes de texte placées sous la barre : de simples « barres » qui n'affichent que du texte
-    lignes = [tqdm(total=0, position=i + 1, bar_format="{desc}", leave=False)
-              for i in range(NB_LIGNES_APERCU)] if apercu else []
+def affichage():
+    """Ce que rich affiche à chaque rafraîchissement : la barre, puis l'aperçu s'il y en a un."""
+    if not derniers:
+        return progression
+    apercu = Text(no_wrap=True, overflow="ellipsis")
+    n = len(derniers)
+    for i, ligne in enumerate(derniers):
+        if i == n - 1:
+            style = STYLE_APERCU_APPARITION
+        elif i == 0 and n == NB_LIGNES_APERCU:
+            style = STYLE_APERCU_DISPARITION
+        else:
+            style = STYLE_APERCU
+        apercu.append(ligne + ("\n" if i < n - 1 else ""), style=style)
+    return Group(progression, apercu)
 
-    try:
-        position = 0
-        for segment in transcription:
-            start_time = convertir(segment.start)
-            segments.append({"debut": segment.start, "fin": segment.end,
-                             "texte": segment.text.strip(), "locuteur": None})
+with Live(get_renderable=affichage, refresh_per_second=8, console=console):
+    for segment in transcription:
+        start_time = convertir(segment.start)
+        segments.append({"debut": segment.start, "fin": segment.end,
+                         "texte": segment.text.strip(), "locuteur": None})
 
-            # Avancement de la barre jusqu'à la fin du segment qui vient d'être traité
-            avancement = min(segment.end, duree_audio)
-            barre.update(avancement - position)
-            position = avancement
+        # Avancement de la barre jusqu'à la fin du segment qui vient d'être traité
+        progression.update(tache, completed=min(segment.end, duree_audio))
 
-            # Aperçu des dernières lignes, la plus récente en bas
-            if apercu:
-                derniers.append(f"[{start_time}] {segment.text.strip()}")
-                derniers = derniers[-NB_LIGNES_APERCU:]
-                largeur = shutil.get_terminal_size().columns - 1
-                for i, ligne in enumerate(lignes):
-                    texte = tronquer(derniers[i], largeur) if i < len(derniers) else ""
-                    ligne.set_description_str(texte)
+        # Aperçu des dernières lignes, la plus récente en bas
+        derniers.append(f"[{start_time}] {segment.text.strip()}")
+        del derniers[:-NB_LIGNES_APERCU]
 
-        # Complète la barre à 100 % (le dernier segment se termine parfois avant la fin de l'audio)
-        barre.update(duree_audio - position)
-
-    finally:
-        # Efface les lignes d'aperçu (dans l'ordre inverse de leur création), la barre reste affichée
-        for ligne in reversed(lignes):
-            ligne.close()
+    # Complète la barre à 100 % et efface l'aperçu : seule la barre reste affichée
+    progression.update(tache, completed=duree_audio)
+    derniers.clear()
 
 # Diarisation : identification de qui parle
 diarisation_ok = False
 if diarisation_possible:
-    print(f"\n{time.strftime('%Hh%M')} : identification des personnes qui parlent ({p.nombre_personnes} attendues), cette étape peut être longue sur CPU...")
+    etape(f"{heure()} Identification des personnes qui parlent ({val(p.nombre_personnes)} attendues), cette étape peut être longue sur CPU...")
     try:
         tours = diariser(audio_entretien, p.nombre_personnes)
         attribuer_locuteurs(segments, tours)
         diarisation_ok = True
     except Exception as e:
-        print(f"\n (x) La diarisation a échoué : {e}")
-        print("     La transcription est enregistrée sans identification des personnes.")
+        erreur(f"La diarisation a échoué : {escape(str(e))}")
+        detail("La transcription est enregistrée sans identification des personnes.")
 
 # Les segments vides (silences transcrits comme du vide) ne sont pas écrits
 segments = [seg for seg in segments if seg["texte"]]
@@ -355,9 +395,9 @@ ecrire_txt(segments, entretien_transcrit, diarisation_ok)
 ecrire_srt(segments, entretien_srt, diarisation_ok)
 
 heure_de_fin = time.localtime()
-print(f"{time.strftime('%Hh%M', heure_de_fin)} : transcription terminée.")
+succes(f"{heure()} Transcription terminée.")
 
-print(f"\nEntretien transcrit et enregistré dans les fichiers : {entretien_transcrit} et {entretien_srt}")
+succes(f"Fichiers enregistrés : {val(entretien_transcrit)} et {val(entretien_srt)}")
 
 if termes:
     afficher_bilan_vocabulaire(compter_vocabulaire(termes, segments))
@@ -375,4 +415,4 @@ elif temps_retranscription_min >= 1:
 else:
     duree_a_afficher = str(round(temps_retranscription)) + " sec"
 
-print(f"Temps de retranscription de l'entretien avec le modèle {modele_whisper} : {duree_a_afficher}\n")
+console.print(f"[dim]Temps de retranscription avec le modèle {escape(modele_whisper)} :[/] {val(duree_a_afficher)}")
