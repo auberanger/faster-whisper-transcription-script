@@ -12,8 +12,12 @@ from faster_whisper.utils import download_model
 from huggingface_hub import snapshot_download
 from huggingface_hub.utils import enable_progress_bars
 
-from tqdm import tqdm
 from contextlib import nullcontext
+
+from rich.console import Group
+from rich.live import Live
+from rich.progress import Progress, TextColumn, BarColumn, TaskProgressColumn, TimeElapsedColumn, TimeRemainingColumn
+from rich.text import Text
 
 import argparse
 import importlib.util
@@ -21,7 +25,6 @@ import math
 import os
 import pathlib
 import re
-import shutil
 import sys
 import time
 import warnings
@@ -49,7 +52,7 @@ FICHIERS_MODELE = ["config.json", "preprocessor_config.json", "model.bin", "toke
 MODELE_DIARISATION = "pyannote/speaker-diarization-community-1"
 NB_PERSONNES_DEFAUT = 2  # Par défaut on prend le cas standard d'un entretien en face à face
 
-NB_LIGNES_APERCU = 4  # nombre de dernières lignes affichées sous la barre (3 à 5 conseillé)
+NB_LIGNES_APERCU = 5  # nombre de dernières lignes affichées sous la barre (3 à 5 conseillé)
 
 # Découpage des tours de parole trop longs en paragraphes (en nombre de caractères) :
 # on coupe à la première fin de phrase après PARAGRAPHE_CIBLE, et dans tous les cas à PARAGRAPHE_MAX
@@ -92,10 +95,6 @@ def convertir_srt(secondes):
     m, ms = divmod(ms, 60000)
     s, ms = divmod(ms, 1000)
     return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
-
-# Raccourcit une ligne pour qu'elle tienne sur une seule ligne du terminal pour l'affichage des lignes retranscrites en temps réel
-def tronquer(texte, largeur):
-    return texte if len(texte) <= largeur else texte[:largeur - 1] + "…"
 
 # Diarisation : retourne la liste des tours de parole (début, fin, étiquette de la personne)
 def diariser(chemin_audio, nb_personnes):
@@ -289,51 +288,49 @@ else:
     print("Langue détectée : '%s', avec une probabilité de %f." % (info.language, info.language_probability))
 
 duree_audio = info.duration  # durée totale de l'audio, en secondes
-apercu = sys.stderr.isatty()  # l'aperçu n'a de sens que dans un vrai terminal
 derniers = []   # dernières lignes transcrites, pour l'aperçu
 segments = []   # tous les segments : {"debut", "fin", "texte", "locuteur"}
-# Barre de progression, avec aperçu en direct des dernières lignes transcrites
 
-with tqdm(total=duree_audio, desc="Retranscription", position=0,
-          bar_format="{l_bar}{bar}| {elapsed}<{remaining}") as barre:
+# Barre de progression (rich), avec aperçu en direct des dernières lignes transcrites
+progression = Progress(
+    TextColumn("[bold]{task.description}"),
+    BarColumn(bar_width=None),
+    TaskProgressColumn(),
+    TextColumn("•"),
+    TimeElapsedColumn(),
+    TextColumn("•"),
+    TimeRemainingColumn(),
+)
+tache = progression.add_task("Retranscription", total=duree_audio)
 
-    # Lignes de texte placées sous la barre : de simples « barres » qui n'affichent que du texte
-    lignes = [tqdm(total=0, position=i + 1, bar_format="{desc}", leave=False)
-              for i in range(NB_LIGNES_APERCU)] if apercu else []
+def affichage():
+    """Ce que rich affiche à chaque rafraîchissement : la barre, puis l'aperçu s'il y en a un."""
+    if not derniers:
+        return progression
+    apercu = Text("\n".join(derniers), style="dim", no_wrap=True, overflow="ellipsis")
+    return Group(progression, apercu)
 
-    try:
-        position = 0
-        for segment in transcription:
-            start_time = convertir(segment.start)
-            segments.append({"debut": segment.start, "fin": segment.end,
-                             "texte": segment.text.strip(), "locuteur": None})
+with Live(get_renderable=affichage, refresh_per_second=8):
+    for segment in transcription:
+        start_time = convertir(segment.start)
+        segments.append({"debut": segment.start, "fin": segment.end,
+                         "texte": segment.text.strip(), "locuteur": None})
 
-            # Avancement de la barre jusqu'à la fin du segment qui vient d'être traité
-            avancement = min(segment.end, duree_audio)
-            barre.update(avancement - position)
-            position = avancement
+        # Avancement de la barre jusqu'à la fin du segment qui vient d'être traité
+        progression.update(tache, completed=min(segment.end, duree_audio))
 
-            # Aperçu des dernières lignes, la plus récente en bas
-            if apercu:
-                derniers.append(f"[{start_time}] {segment.text.strip()}")
-                derniers = derniers[-NB_LIGNES_APERCU:]
-                largeur = shutil.get_terminal_size().columns - 1
-                for i, ligne in enumerate(lignes):
-                    texte = tronquer(derniers[i], largeur) if i < len(derniers) else ""
-                    ligne.set_description_str(texte)
+        # Aperçu des dernières lignes, la plus récente en bas
+        derniers.append(f"[{start_time}] {segment.text.strip()}")
+        del derniers[:-NB_LIGNES_APERCU]
 
-        # Complète la barre à 100 % (le dernier segment se termine parfois avant la fin de l'audio)
-        barre.update(duree_audio - position)
-
-    finally:
-        # Efface les lignes d'aperçu (dans l'ordre inverse de leur création), la barre reste affichée
-        for ligne in reversed(lignes):
-            ligne.close()
+    # Complète la barre à 100 % et efface l'aperçu : seule la barre reste affichée
+    progression.update(tache, completed=duree_audio)
+    derniers.clear()
 
 # Diarisation : identification de qui parle
 diarisation_ok = False
 if diarisation_possible:
-    print(f"\n{time.strftime('%Hh%M')} : identification des personnes qui parlent ({p.nombre_personnes} attendues), cette étape peut être longue sur CPU...")
+    print(f"\n{time.strftime('%Hh%M')} : identification des personnes qui parlent ({p.nombre_personnes} attendues), cette étape peut être longue sur CPU.")
     try:
         tours = diariser(audio_entretien, p.nombre_personnes)
         attribuer_locuteurs(segments, tours)
