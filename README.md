@@ -1,3 +1,5 @@
+<img width="1716" height="293" alt="image" src="https://github.com/user-attachments/assets/8bce7781-ba04-472e-8c89-aecb253c3b15" />
+
 # Utilitaire minimaliste de retranscription automatique d'entretiens
 
 Ce script a été écrit dans le but de simplifier l'utilisation de l'outil de retranscription automatique d'audio open-source [whisper](https://github.com/openai/whisper) d'OpenAI. Il est destiné aux personnes cherchant un utilitaire minimaliste mais robuste en ligne de commande. Le tutoriel d'utilisation ci-dessous est très exhaustif et le rend assez accessible, mais si ouvrir un terminal vous rebute, considérez plutôt un logiciel plus complet, comme [NoScribe](https://noscribe.de/fr/) ou [SocioTranscribe](https://framagit.org/justinmponcet/whisper). 
