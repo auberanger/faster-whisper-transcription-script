@@ -1,6 +1,8 @@
 # Utilitaire minimaliste de retranscription automatique d'entretiens
 
-Ce script a été écrit dans le but de simplifier l'utilisation de l'outil de retranscription automatique d'audio open-source [whisper](https://github.com/openai/whisper) d'OpenAI. L'entretien est un exercice routinier des enquêtes en sciences sociales. Bien qu'il ne soit pas toujours attendu d'en réaliser une retranscription intégrale, cela peut être pertinent dans de nombreux cas (codage de corpus d'entretiens, collaborations sur un corpus, etc.). Cet exercice, s'il a le mérite de permettre de gagner en familiarité avec le contenu de l'entretien, se révèle être particulièrement chronophage et incombant majoritairement aux précaires du monde de la recherche.
+Ce script a été écrit dans le but de simplifier l'utilisation de l'outil de retranscription automatique d'audio open-source [whisper](https://github.com/openai/whisper) d'OpenAI. Il est destiné aux personnes cherchant un utilitaire minimaliste mais robuste en ligne de commande. Le tutoriel d'utilisation ci-dessous est très exhaustif et le rend assez accessible, mais si ouvrir un terminal vous rebute, considérez plutôt un logiciel plus complet, comme [NoScribe](https://noscribe.de/fr/) ou [SocioTranscribe](https://framagit.org/justinmponcet/whisper). 
+
+L'entretien est un exercice routinier des enquêtes en sciences sociales. Bien qu'il ne soit pas toujours attendu d'en réaliser une retranscription intégrale, cela peut être pertinent dans de nombreux cas (codage de corpus d'entretiens, collaborations sur un corpus, etc.). Cet exercice, s'il a le mérite de permettre de gagner en familiarité avec le contenu de l'entretien, se révèle être particulièrement chronophage et incombant majoritairement aux précaires du monde de la recherche.
 
 Le but de ce script est de permettre de gagner du temps sur ce travail de transcription, gratuitement et dans le respect de la confidentialité des enquêté·es (les calculs se font en local). Il permet d'obtenir une __pré-transcription horodatée__, découpée par tours de parole et avec l'identification automatique des personnes qui parlent, qui nécessite ensuite une passe manuelle pour renommer les locuteurices détecté·es et corriger les erreurs de retranscription. __Cet outil n’est donc pas un substitut à l’écoute attentive des entretiens.__
 
@@ -9,7 +11,7 @@ Je me suis inspiré de l'article de blog de [Yacine Chitour](https://www.css.cnr
 Pour l'instant, je n'ai pu tester ce script que sous Linux. Des retours sur son fonctionnement et le guide d'utilisation avec d'autres systèmes d'exploitations sont les bienvenus.
 
 ## Installation
-S'assurer d'avoir [Python](https://www.python.org/downloads/) installé sur son OS et que la version est supérieure ou égale à python 3.2. Cela peut être vérifié en tappant la commande suivante dans le terminal :
+S'assurer d'avoir [Python](https://www.python.org/downloads/) installé sur son OS et que la version est supérieure ou égale à python 3.9. Cela peut être vérifié en tappant la commande suivante dans le terminal :
 ```
 python3 --version
 ```
