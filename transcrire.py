@@ -7,21 +7,30 @@
 
 from faster_whisper import WhisperModel
 from faster_whisper.utils import download_model
+
 from huggingface_hub import snapshot_download
 from huggingface_hub.utils import enable_progress_bars
 
+from tqdm import tqdm
+from contextlib import nullcontext
+
 import argparse
-import io
-import time
-import os
+import importlib.util
 import math
+import os
 import pathlib
 import shutil
 import sys
-from tqdm import tqdm
+import time
 import warnings
 
 warnings.filterwarnings("ignore") # Masquage des warnings dans la console
+
+
+
+
+
+#===== Paramètres =====#
 
 # Modèles de transcription proposés (le premier est le modèle par défaut)
 MODELES_WHISPER = ["large-v3-turbo", "large-v3"]
@@ -34,28 +43,149 @@ DEPOTS_HF = {
 # Fichiers nécessaires au modèle (les mêmes que ceux téléchargés par faster-whisper)
 FICHIERS_MODELE = ["config.json", "preprocessor_config.json", "model.bin", "tokenizer.json", "vocabulary.*"]
 
+# Modèle de diarisation (identification de qui parle)
+MODELE_DIARISATION = "pyannote/speaker-diarization-community-1"
+NB_PERSONNES_DEFAUT = 2  # Par défaut on prend le cas standard d'un entretien en face à face
+
 NB_LIGNES_APERCU = 4  # nombre de dernières lignes affichées sous la barre (3 à 5 conseillé)
 
-def tronquer(texte, largeur):
-    """Raccourcit une ligne pour qu'elle tienne sur une seule ligne du terminal."""
-    return texte if len(texte) <= largeur else texte[:largeur - 1] + "…"
+# Découpage des tours de parole trop longs en paragraphes (en nombre de caractères) :
+# on coupe à la première fin de phrase après PARAGRAPHE_CIBLE, et dans tous les cas à PARAGRAPHE_MAX
+PARAGRAPHE_CIBLE = 400
+PARAGRAPHE_MAX = 700
+
+
+
+
+
+#===== Fonctions =====#
+
 
 # Récupération du fichier audio à transcrire passé en argument
 def creation_parser_arg():
     # Créée and retourne l'objet ArgumentParser
 
-    parser = argparse.ArgumentParser(description="Utilitaire de pré-transcription d'entretiens, utilisant faster-whisper.")
+    parser = argparse.ArgumentParser(description="Utilitaire de pré-transcription d'entretiens, utilisant faster-whisper et pyannote.")
     parser.add_argument("audio_entretien",
         help="Chemin et nom du fichier audio à retranscrire.")
     parser.add_argument("-m", "--modele", choices=MODELES_WHISPER, default=MODELES_WHISPER[0], help="Modèle de transcription (défaut : large-v3-turbo ; large-v3 = précision maximale, calcul plus long).")
     parser.add_argument("-l", "--langue", default=None,
         help="Code de la langue parlée (fr, en, es, de...). Par défaut : détection automatique.")
+    parser.add_argument("-n", "--nombre-personnes", type=int, default=NB_PERSONNES_DEFAUT,
+        help=f"Nombre de personnes qui parlent dans l'enregistrement (défaut : {NB_PERSONNES_DEFAUT}).")
     return parser
+
+# Fonction pour faciliter l'horodatage des segments de parole en heures, minutes et secondes
+def convertir(seconds):
+    h = int(seconds // 3600)
+    m = int((seconds % 3600) // 60)
+    s = int(seconds % 60)
+    return f"{h:02d}:{m:02d}:{s:02d}"
+
+# Horodatage au format SRT : HH:MM:SS,mmm
+def convertir_srt(secondes):
+    ms = int(round(secondes * 1000))
+    h, ms = divmod(ms, 3600000)
+    m, ms = divmod(ms, 60000)
+    s, ms = divmod(ms, 1000)
+    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+# Raccourcit une ligne pour qu'elle tienne sur une seule ligne du terminal pour l'affichage des lignes retranscrites en temps réel
+def tronquer(texte, largeur):
+    return texte if len(texte) <= largeur else texte[:largeur - 1] + "…"
+
+# Diarisation : retourne la liste des tours de parole (début, fin, étiquette de la personne)
+def diariser(chemin_audio, nb_personnes):
+    import torch
+    from pyannote.audio import Pipeline
+
+    # Décodage de l'audio avec PyAV (via faster-whisper) : mono, 16 kHz
+    audio = decode_audio(chemin_audio, sampling_rate=16000)
+    entree = {"waveform": torch.from_numpy(audio).unsqueeze(0), "sample_rate": 16000}
+
+    pipeline = Pipeline.from_pretrained(MODELE_DIARISATION, token=os.environ.get("HF_TOKEN"))
+    if pipeline is None:
+        raise RuntimeError("modèle de diarisation inaccessible (jeton Hugging Face requis ?)")
+
+    # Barre de progression de pyannote si disponible, sinon sans
+    try:
+        from pyannote.audio.pipelines.utils.hook import ProgressHook
+        contexte = ProgressHook()
+    except ImportError:
+        contexte = nullcontext()
+
+    with contexte as hook:
+        sortie = pipeline(entree, hook=hook, num_speakers=nb_personnes)
+
+    # Version « exclusive » : une seule personne parle à la fois, plus simple à croiser avec la transcription
+    return [(tour.start, tour.end, personne) for tour, personne in sortie.exclusive_speaker_diarization]
+
+# Attribue à chaque segment la personne dont la parole le recouvre le plus (Speaker 1, Speaker 2, ...)
+def attribuer_locuteurs(segments, tours):
+    noms = {}  # étiquette pyannote -> "Speaker 1", dans l'ordre d'apparition
+    for seg in segments:
+        recouvrement = {}
+        for debut, fin, personne in tours:
+            duree = min(seg["fin"], fin) - max(seg["debut"], debut)
+            if duree > 0:
+                recouvrement[personne] = recouvrement.get(personne, 0) + duree
+        if recouvrement:
+            brut = max(recouvrement, key=recouvrement.get)
+            seg["locuteur"] = noms.setdefault(brut, f"Speaker {len(noms) + 1}")
+        else:
+            seg["locuteur"] = "Unknown speaker"
+
+# Regroupe les segments consécutifs d'une même personne en tours de parole, puis découpe les tours trop longs en paragraphes (à la première fin de phrase après PARAGRAPHE_CIBLE caractères)
+def regrouper_en_paragraphes(segments):
+    paragraphes = []
+    for seg in segments:
+        courant = paragraphes[-1] if paragraphes else None
+        if courant and courant["locuteur"] == seg["locuteur"]:
+            longueur = len(courant["texte"])
+            fin_de_phrase = courant["texte"].endswith((".", "?", "!", "…"))
+            if longueur < PARAGRAPHE_CIBLE or (longueur < PARAGRAPHE_MAX and not fin_de_phrase):
+                courant["fin"] = seg["fin"]
+                courant["texte"] += " " + seg["texte"]
+                continue
+        paragraphes.append(dict(seg))
+    return paragraphes
+
+# Fichier .txt : un paragraphe par ligne, avec horodatage et personne qui parle
+def ecrire_txt(segments, chemin, avec_locuteurs):
+    with open(chemin, 'w', encoding='utf-8') as f:
+        if avec_locuteurs:
+            for par in regrouper_en_paragraphes(segments):
+                f.write(f"[{convertir(par['debut'])} - {convertir(par['fin'])}] {par['locuteur']} : {par['texte']}\n\n")
+        else:
+            for seg in segments:
+                f.write(f"{convertir(seg['debut'])} - {convertir(seg['fin'])}: {seg['texte']}\n")
+
+# Fichier .srt : mêmes paragraphes que le .txt (l'horodatage est dans l'en-tête de chaque bloc)
+def ecrire_srt(segments, chemin, avec_locuteurs):
+    if avec_locuteurs:
+        blocs = [(par["debut"], par["fin"], f"{par['locuteur']} : {par['texte']}")
+                 for par in regrouper_en_paragraphes(segments)]
+    else:
+        blocs = [(seg["debut"], seg["fin"], seg["texte"]) for seg in segments]
+
+    with open(chemin, 'w', encoding='utf-8') as f:
+        for numero, (debut, fin, texte) in enumerate(blocs, start=1):
+            f.write(f"{numero}\n{convertir_srt(debut)} --> {convertir_srt(fin)}\n{texte}\n\n")
+
+
+
+
+
+#===== Script =====#
 
 # Parsing des argument rentrés en ligne de commande et vérification qu'ils soient corrects
 p = creation_parser_arg().parse_args()
 
-# Vérification de l'existence du fichier
+# Vérification de la saisie d'un nombre de personnes cohérent
+if p.nombre_personnes < 1:
+    sys.exit(" (x) Le nombre de personnes (-n) doit être au moins égal à 1.")
+
+# Vérification de l'existence du fichier audio à transcrire
 if os.path.exists(p.audio_entretien):
     audio_entretien = p.audio_entretien
     print(f"\nFichier audio à retranscrire : {audio_entretien}")
@@ -71,6 +201,15 @@ if p.langue:
             sys.exit(f" (x) Langue invalide : '{p.langue}'. Utiliser un code à deux lettres (fr, en, es, de...).")
     except ImportError:
         pass  # si la liste interne est indisponible, le try/except autour de transcribe() prend le relais
+
+# La diarisation nécessite pyannote.audio : sans lui, la transcription est produite sans identifier les personnes
+try:
+    diarisation_possible = importlib.util.find_spec("pyannote.audio") is not None
+except ModuleNotFoundError:
+    diarisation_possible = False
+if not diarisation_possible:
+    print("\n (!) pyannote.audio n'est pas installé : la transcription sera produite sans identification des personnes.")
+    print("     Pour l'installer : pip install pyannote.audio")
 
 # Modèle de transcription choisi en paramètre (large-v3-turbo par défaut)
 modele_whisper = p.modele
@@ -103,36 +242,25 @@ print(f"\n{time.strftime('%Hh%M', heure_de_demarrage)} : démarrage de la retran
  
 try:
     transcription, info = model.transcribe(audio_entretien, beam_size=5, language=p.langue, vad_filter=True)
-except ValueError as e:
-    print(f"\n (x) Langue invalide : '{p.langue}'. Utiliser un code à deux lettres (fr, en, es, de...).")
-    print(f"     Détail : {e}")
-    sys.exit(1)
+except ValueError:
+    if p.langue is None:
+        raise  # erreur sans rapport avec la langue : on ne la masque pas
+    print(f"\n (x) Langue invalide : '{p.langue}'. Passage en détection automatique de la langue.")
+    p.langue = None
+    transcription, info = model.transcribe(audio_entretien, beam_size=5, language=None, vad_filter=True)
 
-if p.langue:
+if p.langue is not None:
     print(f"Langue imposée : '{p.langue}'.")
 else:
     print("Langue détectée : '%s', avec une probabilité de %f." % (info.language, info.language_probability))
 
-# Fonction pour faciliter l'horodatage des segments de parole en heures, minutes et secondes
-def convertir(seconds):
-    h = int(seconds // 3600)
-    m = int((seconds % 3600) // 60)
-    s = int(seconds % 60)
-    return f"{h:02d}:{m:02d}:{s:02d}"
-    
-# Récupération du nom du fichier débarrassé de son extension à l'aide de pathlib et création d'un fichier texte au même nom
-fileNameStem = pathlib.Path(audio_entretien).stem
-entretien_transcrit = f"{fileNameStem}.txt"
-
-# Enregistrement de la transcription
-duree_audio = info.duration  # durée totale de l'audio, en secondes
-
 duree_audio = info.duration  # durée totale de l'audio, en secondes
 apercu = sys.stderr.isatty()  # l'aperçu n'a de sens que dans un vrai terminal
-derniers = []  # dernières lignes transcrites
+derniers = []   # dernières lignes transcrites, pour l'aperçu
+segments = []   # tous les segments : {"debut", "fin", "texte", "locuteur"}
+# Barre de progression, avec aperçu en direct des dernières lignes transcrites
 
-with open(entretien_transcrit, 'w', encoding='utf-8') as f, \
-     tqdm(total=duree_audio, desc="Retranscription", position=0,
+with tqdm(total=duree_audio, desc="Retranscription", position=0,
           bar_format="{l_bar}{bar}| {elapsed}<{remaining}") as barre:
 
     # Lignes de texte placées sous la barre : de simples « barres » qui n'affichent que du texte
@@ -143,8 +271,8 @@ with open(entretien_transcrit, 'w', encoding='utf-8') as f, \
         position = 0
         for segment in transcription:
             start_time = convertir(segment.start)
-            end_time = convertir(segment.end)
-            f.write(f"{start_time} - {end_time}: {segment.text}\n")
+            segments.append({"debut": segment.start, "fin": segment.end,
+                             "texte": segment.text.strip(), "locuteur": None})
 
             # Avancement de la barre jusqu'à la fin du segment qui vient d'être traité
             avancement = min(segment.end, duree_audio)
@@ -167,24 +295,47 @@ with open(entretien_transcrit, 'w', encoding='utf-8') as f, \
         # Efface les lignes d'aperçu (dans l'ordre inverse de leur création), la barre reste affichée
         for ligne in reversed(lignes):
             ligne.close()
-        
+
+# Diarisation : identification de qui parle
+diarisation_ok = False
+if diarisation_possible:
+    print(f"\n{time.strftime('%Hh%M')} : identification des personnes qui parlent ({p.nombre_personnes} attendues), cette étape peut être longue sur CPU...")
+    try:
+        tours = diariser(audio_entretien, p.nombre_personnes)
+        attribuer_locuteurs(segments, tours)
+        diarisation_ok = True
+    except Exception as e:
+        print(f"\n (x) La diarisation a échoué : {e}")
+        print("     La transcription est enregistrée sans identification des personnes.")
+
+# Les segments vides (silences transcrits comme du vide) ne sont pas écrits
+segments = [seg for seg in segments if seg["texte"]]
+
+# Récupération du nom du fichier débarrassé de son extension à l'aide de pathlib et création des fichiers de sortie au même nom
+fileNameStem = pathlib.Path(audio_entretien).stem
+entretien_transcrit = f"{fileNameStem}.txt"
+entretien_srt = f"{fileNameStem}.srt"
+
+# Enregistrement de la transcription
+ecrire_txt(segments, entretien_transcrit, diarisation_ok)
+ecrire_srt(segments, entretien_srt, diarisation_ok)
+
 heure_de_fin = time.localtime()
 print(f"{time.strftime('%Hh%M', heure_de_fin)} : transcription terminée.")
 
-print(f"\nEntretien transcrit et enregistré dans le fichier : {entretien_transcrit}")
+print(f"\nEntretien transcrit et enregistré dans les fichiers : {entretien_transcrit} et {entretien_srt}")
 
-# Calcul et affichage conditionnel de la durée de retranscription 
+# Calcul et affichage conditionnel de la durée de retranscription
 temps_retranscription = float(time.mktime(heure_de_fin) - time.mktime(heure_de_demarrage))
 temps_retranscription_min = math.trunc(temps_retranscription/60)
 
 if temps_retranscription_min > 59:
-	duree_a_afficher = str(math.trunc(temps_retranscription/3600)) + "h" + str(round(temps_retranscription/60%60))
+    duree_a_afficher = str(math.trunc(temps_retranscription/3600)) + "h" + str(round(temps_retranscription/60%60))
 elif temps_retranscription_min >= 10:
-	duree_a_afficher = str(temps_retranscription_min) + " min"
+    duree_a_afficher = str(temps_retranscription_min) + " min"
 elif temps_retranscription_min >= 1:
-	duree_a_afficher = str(temps_retranscription_min) + " min " + str(round(temps_retranscription%60))
+    duree_a_afficher = str(temps_retranscription_min) + " min " + str(round(temps_retranscription%60))
 else:
-	duree_a_afficher = str(round(temps_retranscription)) + " sec"
+    duree_a_afficher = str(round(temps_retranscription)) + " sec"
 
 print(f"Temps de retranscription de l'entretien avec le modèle {modele_whisper} : {duree_a_afficher}\n")
-
