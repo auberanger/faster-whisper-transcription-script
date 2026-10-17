@@ -1,4 +1,4 @@
-# Script whisper de retranscription automatique d'entretiens
+# Utilitaire minimaliste de retranscription automatique d'entretiens
 
 Ce script a été écrit dans le but de simplifier l'utilisation de l'outil de retranscription automatique d'audio open-source [whisper](https://github.com/openai/whisper) d'OpenAI. L'entretien est un exercice routinier des enquêtes en sciences sociales. Bien qu'il ne soit pas toujours attendu d'en réaliser une retranscription intégrale, cela peut être pertinent dans de nombreux cas (codage de corpus d'entretiens, collaborations sur un corpus, etc.). Cet exercice, s'il a le mérite de permettre de gagner en familiarité avec le contenu de l'entretien, se révèle être particulièrement chronophage et incombant majoritairement aux précaires du monde de la recherche.
 
@@ -62,7 +62,7 @@ Vérifier d'abord que vous êtes bien dans l'environnement virtuel dans lequel f
 source ~/venv-whisper/bin/activate
 ```
 
-Télécharger le script `transcrire.py` (sur ce dépôt) et l'enregistrer dans le dossier contenant les fichiers audios d'entretiens à retranscrire. Si la diarisation est recherché et que l'activation de l'accès au modèle n'est pas encore activé, se référer à la section précédente avant de continuer. Ouvrir dans ce dossier un terminal et lancer le script avec la commande 
+Télécharger le script `transcrire.py` (sur ce dépôt) et l'enregistrer dans le dossier contenant les fichiers audios d'entretiens à retranscrire. Si la diarisation est recherché et que l'activation de l'accès au modèle n'est pas encore activé, se référer à la section précédente avant de continuer. Ouvrir dans ce dossier un terminal. Pour une utilisation basique, lancer le script avec la commande 
 ```
 python3 transcrire.py fichier_audio_entretien.mp3
 ```
@@ -77,8 +77,14 @@ Si le chemin d'accès ou le nom du fichier est incorrect, le script renverra une
 | `-l`, `--langue` | Langue parlée (code à deux lettres : `fr`, `en`...) | détection automatique |
 | `-m`, `--modele` | Modèle de transcription : `large-v3-turbo` ou `large-v3` | `large-v3-turbo` |
 | `-n`, `--nombre-personnes` | Nombre de personnes qui parlent dans l'enregistrement | `2` |
+| `-v`, `--vocabulaire` | Termes à reconnaître en priorité (noms propres, sigles, termes de métier) : fichier texte ou liste séparée par des virgules | aucun |
 
-Exemple combinant les trois : `python3 transcrire_entretien.py entretien.mp3 -l fr -m large-v3 -n 3`
+Exemple combinant les quatre paramètres : `transcrire entretien.mp3 -l fr -m large-v3 -n 3 -v dico.txt`
+
+Pour un mémo des options disponibles, lancer la commande
+```
+python3 transcrire.py --help
+```
 
 ### Choisir la langue de l'entretien
 Par défaut, la langue est détectée automatiquement à partir des premières dizaines de secondes du fichier audio. Cette détection peut se tromper (accent marqué, début d'enregistrement bruité, entretien mêlant plusieurs langues). Il est donc recommandé de **préciser la langue** avec l'option `-l` (ou `--langue`), suivie du code à deux lettres de la langue :
@@ -126,6 +132,35 @@ python3 transcrire_entretien.py fichier_audio_entretien.mp3 -l fr -n 3
 Si le nombre indiqué ne correspond pas à la réalité (par exemple deux voix attendues alors que trois personnes parlent), l'identification sera moins fiable.
 
 Si `pyannote.audio` n'est pas installé, ou si l'identification échoue, le script le signale et enregistre quand même la transcription, sans les noms des personnes.
+
+### Fournir un vocabulaire métier
+Whisper transcrit parfois mal les mots rares : noms propres, sigles, noms d'organisations, termes propres à une discipline ou à un terrain d'enquête. L'option `-v` (ou `--vocabulaire`) lui fournit une liste de termes à privilégier, pour améliorer la reconnaissance de ces mots dans tout l'entretien.
+ 
+La méthode la plus pratique est de créer un fichier texte, par exemple `dico.txt`, avec **un terme par ligne** (encodage UTF-8). Les lignes qui commencent par `#` sont ignorées :
+```
+# Termes à reconnaître (un par ligne)
+Précariat
+JeSuisLéa
+ESR
+coupes budget'hair
+```
+Puis le fournir au script :
+```
+transcrire fichier_audio_entretien.mp3 -l fr -v dico.txt
+```
+Le chemin du fichier est relatif au dossier dans lequel le terminal est ouvert : le plus simple est de garder `dico.txt` dans le même dossier que les enregistrements d'un même terrain, et de le réutiliser pour tous les entretiens du corpus.
+ 
+Pour quelques termes seulement, on peut aussi les écrire directement dans la commande, séparés par des virgules et entre guillemets :
+```
+transcrire fichier_audio_entretien.mp3 -l fr -v "Précariat, JeSuisLéa, ESR, coupes budget'hair"
+```
+ 
+> [!NOTE]
+> **Quelques conseils pour en tirer le meilleur parti :**
+> - Écrire les termes **tels qu'on veut les voir apparaître** dans la transcription (majuscules, accents, traits d'union) : le modèle s'en sert aussi pour l'orthographe.
+> - Rester sur **quelques dizaines de termes** au maximum, et placer les plus importants en premier : au-delà d'une certaine longueur, la fin de la liste n'est plus prise en compte.
+> - Rédiger le vocabulaire **dans la langue de l'entretien**.
+> - Cette option n'« entraîne » pas le modèle : elle ne fait que l'orienter pendant la retranscription.
 
 ## Formats de sortie
 Le script produit **deux fichiers au même nom que le fichier audio**, dans le dossier courant :

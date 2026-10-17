@@ -1,6 +1,6 @@
 #################################################################################################
 ## Utilitaire de retranscription d'entretiens sociologiques (faster-whisper et pyannote).      ##
-## v3.0 - 2026-10-17                                                                           ##
+## v3.1 - 2026-10-17                                                                           ##
 ## Dépôt et instructions : https://github.com/auberanger/faster-whisper-transcription-script   ##
 ## à exécuter en tapant la commande : python3 transcrire.py fichier_audio.mp3                  ##
 #################################################################################################
@@ -20,6 +20,7 @@ import importlib.util
 import math
 import os
 import pathlib
+import re
 import shutil
 import sys
 import time
@@ -61,7 +62,6 @@ PARAGRAPHE_MAX = 700
 
 #===== Fonctions =====#
 
-
 # Récupération du fichier audio à transcrire passé en argument
 def creation_parser_arg():
     # Créée and retourne l'objet ArgumentParser
@@ -74,6 +74,8 @@ def creation_parser_arg():
         help="Code de la langue parlée (fr, en, es, de...). Par défaut : détection automatique.")
     parser.add_argument("-n", "--nombre-personnes", type=int, default=NB_PERSONNES_DEFAUT,
         help=f"Nombre de personnes qui parlent dans l'enregistrement (défaut : {NB_PERSONNES_DEFAUT}).")
+    parser.add_argument("-v", "--vocabulaire", default=None,
+        help="Termes à reconnaître en priorité (noms propres, sigles, termes métier) : liste entre guillemets séparée par des virgules, ou chemin d'un fichier texte avec un terme par ligne.")
     return parser
 
 # Fonction pour faciliter l'horodatage des segments de parole en heures, minutes et secondes
@@ -173,6 +175,31 @@ def ecrire_srt(segments, chemin, avec_locuteurs):
         for numero, (debut, fin, texte) in enumerate(blocs, start=1):
             f.write(f"{numero}\n{convertir_srt(debut)} --> {convertir_srt(fin)}\n{texte}\n\n")
 
+# Retourne la liste des termes, à partir d'un fichier texte (un terme par ligne) ou d'une liste séparée par des virgules.
+def lire_vocabulaire(valeur):
+    if valeur is None:
+        return None
+    if os.path.isfile(valeur):
+        with open(valeur, encoding='utf-8') as f:
+            termes = [ligne.strip() for ligne in f if ligne.strip() and not ligne.startswith("#")]
+    elif valeur.lower().endswith(".txt"):
+        sys.exit(f" (x) Fichier de vocabulaire introuvable : {valeur}")
+    else:
+        termes = [t.strip() for t in valeur.split(",") if t.strip()]
+    return termes or None
+
+# Compte les occurrences de chaque terme du vocabulaire dans la transcription (sans tenir compte de la casse).
+def compter_vocabulaire(termes, segments):
+    texte = " ".join(seg["texte"] for seg in segments)
+    return {terme: len(re.findall(rf"(?<!\w){re.escape(terme)}(?!\w)", texte, flags=re.IGNORECASE))
+            for terme in termes}
+
+# Affiche un bilan du vocabulaire retrouvé à l'issu de la retranscription
+def afficher_bilan_vocabulaire(occurrences):
+    trouves = sorted(((t, n) for t, n in occurrences.items() if n > 0), key=lambda x: -x[1])
+    detail = ", ".join(f"{t} [{n}]" for t, n in trouves)
+    print(f"Vocabulaire retrouvé : {len(trouves)} terme(s) sur {len(occurrences)}" + (f" ({detail})" if trouves else ""))
+
 
 
 
@@ -236,19 +263,25 @@ except Exception as e:
     print(f"\n (x) Impossible de télécharger ou de charger le modèle '{modele_whisper}' : {e}")
     print("     Vérifier la connexion internet et l'espace disque disponible, puis relancer le script.")
     sys.exit(1)
- 
+
+# Ajout du vocabulaire fourni à la variable hotwords pour la retranscription
+termes = lire_vocabulaire(p.vocabulaire)
+hotwords = ", ".join(termes) if termes else None
+if termes:
+    print(f"Vocabulaire fourni : {len(termes)} terme(s).")
+
 # Transcription, avec vérification de l'erreur du paramètre de choix de langue
 heure_de_demarrage = time.localtime()
 print(f"\n{time.strftime('%Hh%M', heure_de_demarrage)} : démarrage de la retranscription...")
  
 try:
-    transcription, info = model.transcribe(audio_entretien, beam_size=5, language=p.langue, vad_filter=True)
+    transcription, info = model.transcribe(audio_entretien, beam_size=5, language=p.langue, vad_filter=True, hotwords=hotwords)
 except ValueError:
     if p.langue is None:
         raise  # erreur sans rapport avec la langue : on ne la masque pas
     print(f"\n (x) Langue invalide : '{p.langue}'. Passage en détection automatique de la langue.")
     p.langue = None
-    transcription, info = model.transcribe(audio_entretien, beam_size=5, language=None, vad_filter=True)
+    transcription, info = model.transcribe(audio_entretien, beam_size=5, language=None, vad_filter=True, hotwords=hotwords)
 
 if p.langue is not None:
     print(f"Langue imposée : '{p.langue}'.")
@@ -325,6 +358,9 @@ heure_de_fin = time.localtime()
 print(f"{time.strftime('%Hh%M', heure_de_fin)} : transcription terminée.")
 
 print(f"\nEntretien transcrit et enregistré dans les fichiers : {entretien_transcrit} et {entretien_srt}")
+
+if termes:
+    afficher_bilan_vocabulaire(compter_vocabulaire(termes, segments))
 
 # Calcul et affichage conditionnel de la durée de retranscription
 temps_retranscription = float(time.mktime(heure_de_fin) - time.mktime(heure_de_demarrage))
