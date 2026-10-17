@@ -48,10 +48,11 @@ L'installation peut être longue (à cause du téléchargement de PyTorch notamm
 Au premier lancement, le script télécharge le modèle d'identification des personnes [`pyannote/speaker-diarization-community-1`](https://huggingface.co/pyannote/speaker-diarization-community-1). Si ce téléchargement est refusé (message d'erreur d'accès), il faut :
 1. créer un compte sur [Hugging Face](https://huggingface.co/) ;
 2. accepter les conditions d'utilisation sur la page du modèle, si elle le demande ;
-3. créer un jeton d'accès en lecture dans les paramètres de votre compte (« Access Tokens ») ;
+3. créer un jeton d'accès en lecture dans les paramètres de votre compte (« [Access Tokens](https://huggingface.co/settings/tokens) », en nommant comme vous le souhaitez) ;
 4. le fournir au script en tapant, dans le terminal et avant de lancer le script : `export HF_TOKEN=votre_jeton`.
+5. Le modèle étant protégé, retourner sur la [page du modèle sur Hugging Face](https://huggingface.co/pyannote/speaker-diarization-community-1) et remplir le formulaire avec votre université de rattachement pour obtenir l'accès.
 
-Une fois les modèles téléchargés, tous les calculs se font en local : les enregistrements ne quittent pas votre ordinateur.
+Une fois les modèles téléchargés et cette première instanciation faite, tous les calculs se font en local : les enregistrements ne quittent pas votre ordinateur.
 
 ## Utilisation
 Ce script est conçu pour être utilisé par une personne n'ayant jamais écrit la moindre ligne de code. Il suffit juste pour l'utiliser d'avoir un terminal de commande à sa disposition et d'exécuter quelques commandes basiques.
@@ -61,7 +62,7 @@ Vérifier d'abord que vous êtes bien dans l'environnement virtuel dans lequel f
 source ~/venv-whisper/bin/activate
 ```
 
-Télécharger le script `transcrire.py` (sur ce dépôt) et l'enregistrer dans le dossier contenant les fichiers audios d'entretiens à retranscrire. Ouvrir dans ce dossier un terminal et lancer le script avec la commande 
+Télécharger le script `transcrire.py` (sur ce dépôt) et l'enregistrer dans le dossier contenant les fichiers audios d'entretiens à retranscrire. Si la diarisation est recherché et que l'activation de l'accès au modèle n'est pas encore activé, se référer à la section précédente avant de continuer. Ouvrir dans ce dossier un terminal et lancer le script avec la commande 
 ```
 python3 transcrire.py fichier_audio_entretien.mp3
 ```

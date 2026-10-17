@@ -1,3 +1,5 @@
 *.txt
+*.srt
+*.mp3
 *.m4a
 *.code-workspace
